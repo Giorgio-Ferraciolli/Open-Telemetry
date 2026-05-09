@@ -1,0 +1,115 @@
+services:
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks: [otel-net]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./collector/config.yaml:/etc/otelcol/config.yaml:ro
+      - ./collector/output:/output:rw
+    ports:
+      - "4317:4317"     # OTLP gRPC — apps conectam aqui
+      - "4318:4318"     # OTLP HTTP
+      - "8888:8888"     # métricas internas do Collector
+      - "8889:8889"     # métricas das apps (exposto pra Prometheus raspar)
+      - "13133:13133"   # health_check
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+    networks: [otel-net]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+      - --enable-feature=native-histograms
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [otel-net]
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: loki
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks: [otel-net]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor metricsSummary
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - tempo
+      - prometheus
+      - loki
+    networks: [otel-net]
+
+  api-python:
+    build: ./services/api-python
+    container_name: api-python
+    environment:
+      - OTEL_SERVICE_NAME=api-python
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=0.1.0,service.namespace=demo
+      - NODE_URL=http://api-node:8000
+    ports:
+      - "8001:8000"
+    depends_on:
+      - otel-collector
+      - api-node
+    networks: [otel-net]
+
+  api-node:
+    build: ./services/api-node
+    container_name: api-node
+    environment:
+      - OTEL_SERVICE_NAME=api-node
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=0.1.0,service.namespace=demo
+    ports:
+      - "8002:8000"
+    depends_on:
+      - otel-collector
+    networks: [otel-net]
+
+networks:
+  otel-net:
+    driver: bridge
+
+volumes:
+  tempo-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:

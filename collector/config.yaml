@@ -1,0 +1,131 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: dev
+        action: upsert
+      - key: collector.host
+        from_attribute: host.name
+        action: insert
+
+  # Joga fora spans de healthcheck (rota raiz)
+  filter/drop_healthchecks:
+    error_mode: ignore
+    traces:
+      span:
+        - 'name == "GET /"'
+
+  # Aplica hash em customer.id (anonimização)
+  attributes/redact:
+    actions:
+      - key: customer.id
+        action: hash
+
+  # Decide guardar/descartar por trace inteiro:
+  # - sempre guarda se deu erro
+  # - sempre guarda se passou de 300ms
+  # - dos demais, mantém 30%
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 50000
+    expected_new_traces_per_sec: 50
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 300
+      - name: sample-30pct
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 30
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+exporters:
+  debug:
+    verbosity: basic
+
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
+  # Fan-out: além do Tempo, escreve traces em arquivo pra você ver
+  file/traces:
+    path: /output/traces.jsonl
+    flush_interval: 1s
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resource
+        - filter/drop_healthchecks   # 1) joga fora ruído
+        - attributes/redact          # 2) anonimiza PII
+        - tail_sampling              # 3) decide manter/descartar por trace
+        - batch
+      exporters:
+        - otlp/tempo                 # destino principal
+        - file/traces                # destino secundário (fan-out)
+        - debug
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/loki, debug]
