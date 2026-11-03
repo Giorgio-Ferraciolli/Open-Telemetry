@@ -1,0 +1,54 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: otel-lab-mysql
+    environment:
+      MYSQL_DATABASE: lab
+      MYSQL_USER: lab
+      MYSQL_PASSWORD: lab
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "lab", "-plab"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: otel-lab-app
+    environment:
+      DATABASE_URL: mysql+pymysql://lab:lab@mysql:3306/lab
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: fastapi-lab
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: otel-lab-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      SIGNOZ_OTLP_ENDPOINT: ${SIGNOZ_OTLP_ENDPOINT:-signoz-ingester:4317}
+    volumes:
+      - ./collector/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - signoz-network
+
+networks:
+  signoz-network:
+    external: true
+
+volumes:
+  mysql_data:

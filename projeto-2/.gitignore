@@ -1,0 +1,25 @@
+# Variaveis de ambiente locais — use .env.example como modelo
+.env
+.env.local
+*.env
+!.env.example
+
+# Artefatos gerados pelo instalador do SigNoz (foundryctl cast)
+signoz/deployment/casting.yaml
+signoz/deployment/casting.yaml.lock
+signoz/deployment/pours/
+
+# Dados de container
+mysql_data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editores e SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
