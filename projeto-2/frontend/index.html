@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OTel Lab</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+    body { margin: 0; background: #10131a; color: #f4f6fb; }
+    main { max-width: 760px; margin: 0 auto; padding: 56px 22px; }
+    .eyebrow { color: #8b9cff; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { font-size: clamp(32px, 7vw, 58px); line-height: 1; margin: 12px 0; }
+    p { color: #aab2c5; }
+    .card { margin-top: 32px; background: #191e29; border: 1px solid #2c3445; border-radius: 16px; padding: 22px; }
+    form { display: flex; gap: 10px; }
+    input { flex: 1; min-width: 0; background: #0f1219; color: white; border: 1px solid #3b465d; border-radius: 10px; padding: 13px 14px; font-size: 16px; }
+    button { border: 0; border-radius: 10px; padding: 0 18px; background: #7c8cff; color: #111522; font-weight: 800; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    #status { min-height: 24px; margin-top: 12px; color: #9ee6b8; }
+    ul { list-style: none; padding: 0; margin: 18px 0 0; }
+    li { padding: 13px 0; border-top: 1px solid #2c3445; display: flex; justify-content: space-between; gap: 12px; }
+    time { color: #8590a6; font-size: 13px; white-space: nowrap; }
+    code { color: #9facff; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">OpenTelemetry laboratório</div>
+    <h1>Gere um trace.</h1>
+    <p>Envie um item. A API grava no MySQL e o fluxo completo aparece no SigNoz.</p>
+    <section class="card">
+      <form id="form">
+        <input id="name" maxlength="120" placeholder="Ex.: pedido de teste" required />
+        <button id="submit">Salvar</button>
+      </form>
+      <div id="status"></div>
+      <ul id="items"></ul>
+    </section>
+  </main>
+<script>
+const form = document.querySelector('#form');
+const nameInput = document.querySelector('#name');
+const status = document.querySelector('#status');
+const items = document.querySelector('#items');
+const button = document.querySelector('#submit');
+const date = value => new Date(value).toLocaleString('pt-BR');
+async function load() {
+  const res = await fetch('/api/items');
+  const data = await res.json();
+  items.innerHTML = data.map(x => `<li><span>#${x.id} — ${x.name}</span><time>${date(x.created_at)}</time></li>`).join('');
+}
+form.addEventListener('submit', async event => {
+  event.preventDefault(); button.disabled = true; status.textContent = 'Enviando…';
+  try {
+    const res = await fetch('/api/items', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: nameInput.value}) });
+    if (!res.ok) throw new Error('Não foi possível salvar');
+    nameInput.value = ''; status.textContent = 'Salvo no MySQL. Trace enviado ao Collector.'; await load();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+load();
+</script>
+</body>
+</html>
