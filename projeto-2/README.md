@@ -113,3 +113,13 @@ curl -X POST http://localhost:8000/api/items \
   -H 'Content-Type: application/json' \
   -d '{"name":"item via curl"}'
 ```
+
+Para popular o dashboard com carga leve e sequencial, execute:
+
+```bash
+./load/generate.sh
+```
+
+O script roda por 10 minutos por padrão, alternando `POST` e `GET` a aproximadamente
+1 requisicao por segundo. Para ajustar a duração, passe segundos como argumento, por
+exemplo `./load/generate.sh 60`.
